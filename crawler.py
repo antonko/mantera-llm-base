@@ -2,6 +2,7 @@ import asyncio
 import os
 import uuid
 from typing import Any
+from urllib.parse import urlparse
 
 import chromadb
 import tiktoken
@@ -15,7 +16,6 @@ from crawl4ai.content_scraping_strategy import LXMLWebScrapingStrategy
 from crawl4ai.deep_crawling import BestFirstCrawlingStrategy
 from crawl4ai.deep_crawling.filters import (
     ContentTypeFilter,
-    DomainFilter,
     FilterChain,
     URLPatternFilter,
 )
@@ -172,21 +172,21 @@ class WebsiteCrawler:
             f"Параметры: глубина={max_depth}, макс.страниц={max_pages}, проверка robots.txt={check_robots_txt}",
         )
 
-        # Определение базового домена, если не указаны разрешенные домены
-        if not allowed_domains:
-            from urllib.parse import urlparse
-
-            base_domain = urlparse(url).netloc
-            allowed_domains = [base_domain]
-            print(f"Разрешенные домены: {allowed_domains}")
-
         # Настройка фильтров
         filters = []
 
-        # Добавляем фильтр доменов только если НЕ включены внешние сайты
-        if not include_external and allowed_domains:
-            filters.append(DomainFilter(allowed_domains=allowed_domains))
+        # Добавляем фильтр точного домена через паттерны
+        if not include_external:
+            base_domain = urlparse(url).netloc
+            domain_patterns = [
+                f"https://{base_domain}/*",
+                f"http://{base_domain}/*",
+            ]
+            filters.append(URLPatternFilter(patterns=domain_patterns))
+            print(f"Применен фильтр точного домена: {base_domain}")
+            print(f"Паттерны: {domain_patterns}")
 
+        # Добавляем пользовательские паттерны, если они указаны
         if allowed_patterns:
             filters.append(URLPatternFilter(patterns=allowed_patterns))
 
@@ -346,23 +346,19 @@ class WebsiteCrawler:
 
 async def main():
     """Пример использования краулера."""
-    # Создаем экземпляр краулера
     crawler = WebsiteCrawler()
 
-    # URL для сканирования
-    target_url = "https://krasnayapolyanaresort.ru/"  # Замените на нужный URL
+    target_url = "https://manteracongress.ru"
 
-    # Запускаем сканирование
     await crawler.crawl_website(
         url=target_url,
-        max_depth=5,  # Уменьшаем глубину
-        max_pages=1000,  # Уменьшаем количество страниц
+        max_depth=5,
+        max_pages=100,
         keywords=["отель", "курорт", "афиша", "справка", "информация"],
         verbose=True,
-        check_robots_txt=False,  # Отключаем проверку robots.txt
+        check_robots_txt=False,
     )
 
-    # Проверяем количество сохраненных документов
     doc_count = crawler.get_data_count()
     print(f"В базе данных сохранено {doc_count} документов.")
 
