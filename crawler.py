@@ -4,6 +4,7 @@ import uuid
 from typing import Any
 
 import chromadb
+import tiktoken
 from bs4 import BeautifulSoup
 from chromadb.config import Settings
 from chromadb.errors import NotFoundError
@@ -24,6 +25,36 @@ from dotenv import load_dotenv
 
 # Загружаем переменные из .env файла
 load_dotenv()
+
+# Инициализация tiktoken энкодера и параметров чанкинга
+encoder = tiktoken.encoding_for_model("text-embedding-ada-002")
+MAX_TOKENS = 8000  # чуть меньше лимита модели
+OVERLAP = 100  # держим небольшое перекрытие
+
+
+def chunk_text(text: str) -> list[str]:
+    """Разбивает текст на чанки с учетом токенов и перекрытия.
+
+    Args:
+        text: Текст для разбивки
+
+    Returns:
+        Список чанков текста
+
+    """
+    tokens = encoder.encode(text)
+    chunks = []
+    start = 0
+    while start < len(tokens):
+        end = min(start + MAX_TOKENS, len(tokens))
+        chunk = encoder.decode(tokens[start:end])
+        chunks.append(chunk)
+        # если мы дошли до конца — выходим
+        if end == len(tokens):
+            break
+        # иначе смещаемся с перекрытием
+        start = end - OVERLAP
+    return chunks
 
 
 def extract_title_from_html(html: str) -> str:
@@ -136,12 +167,18 @@ class WebsiteCrawler:
             Количество сохраненных страниц
 
         """
+        print(f"Начинаем сканирование: {url}")
+        print(
+            f"Параметры: глубина={max_depth}, макс.страниц={max_pages}, проверка robots.txt={check_robots_txt}",
+        )
+
         # Определение базового домена, если не указаны разрешенные домены
         if not allowed_domains:
             from urllib.parse import urlparse
 
             base_domain = urlparse(url).netloc
             allowed_domains = [base_domain]
+            print(f"Разрешенные домены: {allowed_domains}")
 
         # Настройка фильтров
         filters = []
@@ -161,6 +198,7 @@ class WebsiteCrawler:
         # Настройка скорера для приоритизации страниц
         if not keywords:
             keywords = ["информация", "данные", "документ", "руководство"]
+        print(f"Ключевые слова для приоритизации: {keywords}")
 
         keyword_scorer = KeywordRelevanceScorer(keywords=keywords, weight=0.7)
 
@@ -190,67 +228,94 @@ class WebsiteCrawler:
             remove_overlay_elements=True,  # Удаляем всплывающие элементы и оверлеи
         )
 
+        print("Конфигурация сканирования настроена. Начинаем выполнение...")
+
         # Выполнение сканирования
         pages_processed = 0
-        async with AsyncWebCrawler() as crawler:
-            async for result in await crawler.arun(url, config=config):
-                # Проверяем успешность запроса
-                if not result.success or (
-                    hasattr(result, "status_code") and result.status_code != 200
-                ):
-                    if verbose:
-                        error_msg = getattr(result, "error_message", "Неизвестная ошибка")
-                        print(f"Ошибка при обработке {result.url}: {error_msg}")
-                    continue
+        try:
+            async with AsyncWebCrawler() as crawler:
+                print("Краулер инициализирован, начинаем асинхронное сканирование...")
+                async_run = await crawler.arun(url, config=config)
+                print("Получен асинхронный генератор результатов")
 
-                # Создаем уникальный ID на основе URL
-                doc_id = str(uuid.uuid5(uuid.NAMESPACE_URL, result.url))
-                page_url = result.url
+                async for result in async_run:
+                    print(f"Обрабатываем результат для {result.url}")
+                    # Проверяем успешность запроса
+                    if not result.success or (
+                        hasattr(result, "status_code") and result.status_code != 200
+                    ):
+                        if verbose:
+                            error_msg = getattr(result, "error_message", "Неизвестная ошибка")
+                            print(f"Ошибка при обработке {result.url}: {error_msg}")
+                        continue
 
-                # Используем markdown текст вместо HTML для лучшего извлечения информации
-                if (
-                    hasattr(result, "markdown")
-                    and result.markdown
-                    and hasattr(result.markdown, "raw_markdown")
-                ):
-                    page_content = result.markdown.raw_markdown
-                else:
-                    # Запасной вариант - очищенный HTML
-                    page_content = (
-                        result.cleaned_html
-                        if hasattr(result, "cleaned_html") and result.cleaned_html
-                        else result.html
+                    # Создаем уникальный ID на основе URL
+                    doc_id = str(uuid.uuid5(uuid.NAMESPACE_URL, result.url))
+                    page_url = result.url
+
+                    # Используем markdown текст вместо HTML для лучшего извлечения информации
+                    if (
+                        hasattr(result, "markdown")
+                        and result.markdown
+                        and hasattr(result.markdown, "raw_markdown")
+                    ):
+                        full_text = result.markdown.raw_markdown
+                    else:
+                        # Запасной вариант - очищенный HTML
+                        full_text = (
+                            result.cleaned_html
+                            if hasattr(result, "cleaned_html") and result.cleaned_html
+                            else result.html
+                        )
+
+                    # Извлекаем заголовок из очищенного HTML
+                    page_title = extract_title_from_html(
+                        result.cleaned_html if hasattr(result, "cleaned_html") else result.html,
                     )
 
-                # Извлекаем заголовок из очищенного HTML
-                page_title = extract_title_from_html(
-                    result.cleaned_html if hasattr(result, "cleaned_html") else result.html,
-                )
+                    score = result.metadata.get("score", 0)
+                    depth = result.metadata.get("depth", 0)
+                    timestamp = result.metadata.get("timestamp", "")
 
-                score = result.metadata.get("score", 0)
-                depth = result.metadata.get("depth", 0)
+                    if verbose:
+                        print(f"Глубина: {depth} | Оценка: {score:.2f} | {page_url}")
 
-                if verbose:
-                    print(f"Глубина: {depth} | Оценка: {score:.2f} | {page_url}")
+                    # Разбиваем текст на чанки
+                    chunks = chunk_text(full_text)
+                    print(f"Текст разбит на {len(chunks)} чанков")
 
-                # Создаем метаданные для страницы с индексом чанка 0
-                page_metadata = {
-                    "url": page_url,
-                    "title": page_title,
-                    "depth": depth,
-                    "score": score,
-                    "chunk_index": 0,  # Каждая страница сохраняется как один чанк
-                    "crawled_at": result.metadata.get("timestamp", ""),
-                }
+                    print("Разбивка текста на чанки завершена")
 
-                # Сохраняем страницу как один чанк
-                self.collection.add(
-                    documents=[page_content],
-                    metadatas=[page_metadata],
-                    ids=[doc_id],
-                )
+                    # Сохраняем каждый чанк с обновленными метаданными
+                    for idx, chunk in enumerate(chunks):
+                        # Создаем уникальный ID на основе URL и индекса чанка
+                        chunk_id = str(uuid.uuid5(uuid.NAMESPACE_URL, result.url + f"#{idx}"))
 
-                pages_processed += 1
+                        # Создаем метаданные для чанка
+                        metadata = {
+                            "url": page_url,
+                            "title": page_title,
+                            "chunk_index": idx,
+                            "depth": depth,
+                            "score": score,
+                            "crawled_at": timestamp,
+                        }
+
+                        # Сохраняем чанк
+                        self.collection.add(
+                            documents=[chunk],
+                            metadatas=[metadata],
+                            ids=[chunk_id],
+                        )
+                        print(f"Сохранен чанк {idx + 1}/{len(chunks)} для {page_url}")
+
+                    pages_processed += 1
+                    print(f"Обработано страниц: {pages_processed}/{max_pages}")
+        except Exception as e:
+            print(f"Ошибка во время сканирования: {str(e)}")
+            import traceback
+
+            traceback.print_exc()
 
         print(f"Сканирование завершено. Обработано {pages_processed} страниц.")
         return pages_processed
@@ -285,16 +350,16 @@ async def main():
     crawler = WebsiteCrawler()
 
     # URL для сканирования
-    target_url = "https://romantikarkhyz.ru/"  # Замените на нужный URL
+    target_url = "https://krasnayapolyanaresort.ru/"  # Замените на нужный URL
 
     # Запускаем сканирование
     await crawler.crawl_website(
         url=target_url,
-        max_depth=5,
-        max_pages=500,
-        keywords=["информация", "отель", "номера", "справка", "правила"],
+        max_depth=5,  # Уменьшаем глубину
+        max_pages=1000,  # Уменьшаем количество страниц
+        keywords=["отель", "курорт", "афиша", "справка", "информация"],
         verbose=True,
-        check_robots_txt=True,
+        check_robots_txt=False,  # Отключаем проверку robots.txt
     )
 
     # Проверяем количество сохраненных документов
