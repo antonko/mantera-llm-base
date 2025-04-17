@@ -1,0 +1,43 @@
+[project]
+name = "mantera-llm-base"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "bs4>=0.0.2",
+    "chromadb>=1.0.5",
+    "crawl4ai>=0.5.0.post8",
+    "mypy>=1.15.0",
+    "openai>=1.75.0",
+    "python-dotenv>=1.1.0",
+    "ruff>=0.11.6",
+]
+
+
+[tool.ruff]
+line-length = 99
+indent-width = 4
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["T201", "D100", "D107", "ANN101", "TRY002", "TRY003", "EM101", "G004", "RUF", "D104", "D203", "D213", "PGH003", "PLR0913", "EM102", "INP001", "D401", "FIX002", "TD002", "TD003"]
+fixable = ["ALL"]
+unfixable = ["B"]
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402"]
+"**/{tests,docs,tools}/*" = ["E402", "F811", "ARG001", "D103", "S101", "PLR2004", "F401", "PLR0913"]
+
+[tool.ruff.lint.flake8-quotes]
+docstring-quotes = "double"
+
+[tool.ruff.lint.flake8-builtins]
+builtins-ignorelist = ["id","type"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = "pydantic.mypy"
+strict = false
