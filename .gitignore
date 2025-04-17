@@ -174,3 +174,4 @@ cython_debug/
 .pypirc
 .langgraph_api/
 chroma_db/
+chat_histories/

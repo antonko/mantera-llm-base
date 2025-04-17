@@ -5,9 +5,11 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "aiogram>=3.20.0.post0",
     "bs4>=0.0.2",
     "chromadb>=1.0.5",
     "crawl4ai>=0.5.0.post8",
+    "langchain>=0.3.23",
     "mypy>=1.15.0",
     "openai>=1.75.0",
     "python-dotenv>=1.1.0",

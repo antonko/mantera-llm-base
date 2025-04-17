@@ -348,13 +348,25 @@ async def main():
     """Пример использования краулера."""
     crawler = WebsiteCrawler()
 
-    target_url = "https://manteracongress.ru"
+    target_url = "https://casinosochi.ru"
 
     await crawler.crawl_website(
         url=target_url,
         max_depth=5,
-        max_pages=100,
-        keywords=["отель", "курорт", "афиша", "справка", "информация"],
+        max_pages=500,
+        keywords=[
+            "казино",
+            "ресторан",
+            "афиша",
+            "бар",
+            "информация",
+            "расписание",
+            "правила",
+            "игры",
+            "покер",
+            "события",
+            "акции"
+        ],
         verbose=True,
         check_robots_txt=False,
     )
